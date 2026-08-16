@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "start": "node src/index.js",
+    "start": "prisma migrate deploy && node prisma/seed.js && node src/index.js",
     "dev": "node src/index.js",
     "db:migrar": "prisma migrate deploy",
     "db:preparar": "node prisma/seed.js"
