@@ -18,14 +18,17 @@ router.get('/:id', soloRoles(...ROLES_PRODUCCION, 'Contador'), manejarAsync(asyn
   res.json(proceso);
 }));
 
-// Iniciar un proceso nuevo, indicando que lotes de compra se combinan
 router.post('/', soloRoles(...ROLES_PRODUCCION), manejarAsync(async (req, res) => {
   const datos = { ...req.body, usuarioId: req.usuario.id };
   const nuevo = await servicio.iniciarProceso(datos);
   res.status(201).json(nuevo);
 }));
 
-// Agregar costos mientras el proceso esta abierto
+router.post('/:id/lotes', soloRoles(...ROLES_PRODUCCION), manejarAsync(async (req, res) => {
+  const registro = await servicio.agregarLoteAProceso(req.params.id, req.body);
+  res.status(201).json(registro);
+}));
+
 router.post('/:id/mano-obra', soloRoles(...ROLES_PRODUCCION), manejarAsync(async (req, res) => {
   const registro = await servicio.agregarManoObra(req.params.id, req.body);
   res.status(201).json(registro);
@@ -46,7 +49,6 @@ router.post('/:id/mermas', soloRoles(...ROLES_PRODUCCION), manejarAsync(async (r
   res.status(201).json(registro);
 }));
 
-// Finalizar: aqui se calculan los costos reales y se genera el producto terminado
 router.post('/:id/finalizar', soloRoles(...ROLES_PRODUCCION), manejarAsync(async (req, res) => {
   const resultado = await servicio.finalizarProceso(req.params.id, req.body);
   res.json(resultado);
