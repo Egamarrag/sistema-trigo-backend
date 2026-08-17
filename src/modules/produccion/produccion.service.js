@@ -257,4 +257,87 @@ async function finalizarProceso(procesoId, { lotesTerminadosGenerados }) {
     const costoTotalProceso = costoMateriaPrima + costoProcesamiento;
 
     const pesoSalidaTotal = lotesTerminadosGenerados.reduce((s, l) => s + Number(l.pesoKg), 0);
-    const
+    const pesoMermaRegistrada = proceso.mermas.reduce((s, m) => s + Number(m.pesoKg), 0);
+    const pesoEntrada = Number(proceso.pesoEntradaKg);
+
+    const diferencia = pesoEntrada - (pesoSalidaTotal + pesoMermaRegistrada);
+    if (Math.abs(diferencia) > 0.5) {
+      throw new Error(
+        `Los pesos no cuadran: entraron ${pesoEntrada}kg, pero salida + merma registrada suman ${(pesoSalidaTotal + pesoMermaRegistrada).toFixed(2)}kg. ` +
+        `Revisa si falta registrar merma o si el peso del producto terminado esta mal.`
+      );
+    }
+
+    const lotesCreados = [];
+    for (const item of lotesTerminadosGenerados) {
+      const proporcion = Number(item.pesoKg) / pesoSalidaTotal;
+      const costoTotalLote = costoTotalProceso * proporcion;
+      const costoKg = costoTotalLote / Number(item.pesoKg);
+      const codigoLote = await generarCodigoLoteTerminado();
+
+      const loteCreado = await tx.loteProductoTerminado.create({
+        data: {
+          procesoId: proceso.id,
+          presentacionId: Number(item.presentacionId),
+          codigoLote,
+          pesoKg: Number(item.pesoKg),
+          costoTotalLote,
+          costoKg,
+          estado: 'disponible',
+        },
+      });
+
+      await tx.inventarioMovimiento.create({
+        data: {
+          loteProductoId: loteCreado.id,
+          tipoMovimiento: 'ingreso',
+          cantidadKg: Number(item.pesoKg),
+          motivo: 'produccion',
+        },
+      });
+
+      lotesCreados.push(loteCreado);
+    }
+
+    for (const insumo of proceso.insumosLote) {
+      await tx.loteCompra.update({
+        where: { id: insumo.loteCompraId },
+        data: { estado: 'agotado' },
+      });
+    }
+
+    const procesoFinalizado = await tx.produccionProceso.update({
+      where: { id: proceso.id },
+      data: {
+        estado: 'finalizado',
+        fechaFin: new Date(),
+        pesoSalidaKg: pesoSalidaTotal,
+      },
+    });
+
+    return {
+      proceso: procesoFinalizado,
+      lotesCreados,
+      resumenCostos: {
+        costoMateriaPrima,
+        costoProcesamiento,
+        costoTotalProceso,
+        porcentajeMerma: pesoEntrada > 0 ? (pesoMermaRegistrada / pesoEntrada) * 100 : 0,
+      },
+    };
+  });
+
+  return resultado;
+}
+
+module.exports = {
+  listarProcesos,
+  obtenerProceso,
+  iniciarProceso,
+  agregarLoteAProceso,
+  agregarManoObra,
+  agregarMaquinariaUso,
+  agregarInsumoAdicional,
+  registrarMerma,
+  finalizarProceso,
+};
