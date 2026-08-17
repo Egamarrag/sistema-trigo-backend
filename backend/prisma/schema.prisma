@@ -1,0 +1,561 @@
+// ============================================================
+// SISTEMA DE CONTROL Y DIAGNOSTICO EMPRESARIAL - TRIGO
+// Modelo de base de datos completo
+// ============================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// BLOQUE: SEGURIDAD Y AUDITORIA
+// ============================================================
+
+model Rol {
+  id          Int      @id @default(autoincrement())
+  nombre      String   @unique // Administrador, Operario, Vendedor, Contador
+  descripcion String?
+  usuarios    Usuario[]
+  permisos    RolPermiso[]
+  creadoEn    DateTime @default(now()) @map("creado_en")
+
+  @@map("roles")
+}
+
+model Usuario {
+  id             Int      @id @default(autoincrement())
+  nombreCompleto String   @map("nombre_completo")
+  usuario        String   @unique
+  passwordHash   String   @map("password_hash")
+  rolId          Int      @map("rol_id")
+  rol            Rol      @relation(fields: [rolId], references: [id])
+  telefono       String?
+  activo         Boolean  @default(true)
+  creadoEn       DateTime @default(now()) @map("creado_en")
+
+  // Relaciones inversas (quien registro cada cosa)
+  compras           Compra[]
+  procesos          ProduccionProceso[]
+  ventas            Venta[]
+  gastos            Gasto[]
+  pagosCobros       PagoCobro[]
+  auditoriaLogs     AuditoriaLog[]
+
+  @@map("usuarios")
+}
+
+model Permiso {
+  id      Int    @id @default(autoincrement())
+  modulo  String // 'ventas', 'compras', 'caja', etc.
+  accion  String // 'ver', 'crear', 'editar', 'eliminar'
+  roles   RolPermiso[]
+
+  @@unique([modulo, accion])
+  @@map("permisos")
+}
+
+model RolPermiso {
+  rolId     Int @map("rol_id")
+  permisoId Int @map("permiso_id")
+  rol       Rol     @relation(fields: [rolId], references: [id])
+  permiso   Permiso @relation(fields: [permisoId], references: [id])
+
+  @@id([rolId, permisoId])
+  @@map("rol_permiso")
+}
+
+model AuditoriaLog {
+  id             Int      @id @default(autoincrement())
+  usuarioId      Int?     @map("usuario_id")
+  usuario        Usuario? @relation(fields: [usuarioId], references: [id])
+  tablaAfectada  String   @map("tabla_afectada")
+  registroId     Int      @map("registro_id")
+  accion         String   // CREAR, EDITAR, ELIMINAR
+  datosAntes     Json?    @map("datos_antes")
+  datosDespues   Json?    @map("datos_despues")
+  fechaHora      DateTime @default(now()) @map("fecha_hora")
+
+  @@map("auditoria_log")
+}
+
+// ============================================================
+// BLOQUE: MAESTROS
+// ============================================================
+
+model Proveedor {
+  id               Int      @id @default(autoincrement())
+  nombre           String
+  documentoTipo    String?  @map("documento_tipo")
+  documentoNumero  String?  @map("documento_numero")
+  telefono         String?
+  direccion        String?
+  zonaProcedencia  String?  @map("zona_procedencia")
+  activo           Boolean  @default(true)
+  creadoEn         DateTime @default(now()) @map("creado_en")
+
+  compras          Compra[]
+  cuentasPorPagar  CuentaPorPagar[]
+
+  @@map("proveedores")
+}
+
+model Cliente {
+  id                Int      @id @default(autoincrement())
+  nombre            String
+  documentoTipo     String?  @map("documento_tipo")
+  documentoNumero   String?  @map("documento_numero")
+  telefono          String?
+  direccion         String?
+  condicionPago     CondicionPago @default(contado) @map("condicion_pago")
+  diasCredito       Int?     @map("dias_credito")
+  lineaCreditoMax   Decimal? @map("linea_credito_max") @db.Decimal(12, 2)
+  activo            Boolean  @default(true)
+  creadoEn          DateTime @default(now()) @map("creado_en")
+
+  ventas            Venta[]
+
+  @@map("clientes")
+}
+
+enum CondicionPago {
+  contado
+  credito
+}
+
+model Producto {
+  id             Int      @id @default(autoincrement())
+  nombre         String   // "Trigo lavado grado A"
+  descripcion    String?
+  unidadBase     String   @default("kg") @map("unidad_base")
+  activo         Boolean  @default(true)
+
+  presentaciones Presentacion[]
+
+  @@map("productos")
+}
+
+model Presentacion {
+  id          Int      @id @default(autoincrement())
+  productoId  Int      @map("producto_id")
+  producto    Producto @relation(fields: [productoId], references: [id])
+  nombre      String   // "Saco 50kg", "Granel", "Saco 25kg"
+  pesoKg      Decimal  @map("peso_kg") @db.Decimal(10, 3)
+  activo      Boolean  @default(true)
+
+  lotesProductoTerminado LoteProductoTerminado[]
+
+  @@map("presentaciones")
+}
+
+model Trabajador {
+  id                  Int      @id @default(autoincrement())
+  nombreCompleto      String   @map("nombre_completo")
+  documento           String?
+  telefono            String?
+  tipoPago            TipoPago @map("tipo_pago")
+  tarifaReferencial   Decimal  @map("tarifa_referencial") @db.Decimal(10, 2)
+  tarifaHoraExtra     Decimal? @map("tarifa_hora_extra") @db.Decimal(10, 2)
+  tarifaHoraNocturna  Decimal? @map("tarifa_hora_nocturna") @db.Decimal(10, 2)
+  activo              Boolean  @default(true)
+
+  manoDeObra          ProduccionManoObra[]
+
+  @@map("trabajadores")
+}
+
+enum TipoPago {
+  jornal
+  destajo
+  fijo
+}
+
+model Maquinaria {
+  id                    Int      @id @default(autoincrement())
+  nombre                String   // "Lavadora 1"
+  tipo                  String?
+  costoHoraOperacion    Decimal  @map("costo_hora_operacion") @db.Decimal(10, 2)
+  fechaAdquisicion      DateTime? @map("fecha_adquisicion")
+  estado                EstadoMaquinaria @default(operativa)
+
+  usos                  ProduccionMaquinariaUso[]
+
+  @@map("maquinaria")
+}
+
+enum EstadoMaquinaria {
+  operativa
+  mantenimiento
+  baja
+}
+
+model CuentaTesoreria {
+  id           Int      @id @default(autoincrement())
+  nombre       String   // "Caja efectivo", "Yape", "Interbank cta corriente"
+  tipo         TipoCuentaTesoreria
+  saldoActual  Decimal  @default(0) @map("saldo_actual") @db.Decimal(12, 2)
+  activo       Boolean  @default(true)
+
+  pagosCobros       PagoCobro[]
+  gastos            Gasto[]
+  movimientosCaja   CajaMovimiento[]
+
+  @@map("cuentas_tesoreria")
+}
+
+enum TipoCuentaTesoreria {
+  efectivo
+  billetera_digital
+  banco
+}
+
+// ============================================================
+// BLOQUE: COMPRAS Y LOTES DE MATERIA PRIMA
+// ============================================================
+
+model OrigenTrigo {
+  id       Int      @id @default(autoincrement())
+  nombre   String   @unique // "Nacional Arequipa", "Importado", "Nacional Cusco", etc.
+  activo   Boolean  @default(true)
+
+  compras  Compra[]
+
+  @@map("origenes_trigo")
+}
+
+model Compra {
+  id              Int      @id @default(autoincrement())
+  proveedorId     Int      @map("proveedor_id")
+  proveedor       Proveedor @relation(fields: [proveedorId], references: [id])
+  origenId        Int?     @map("origen_id")
+  origen          OrigenTrigo? @relation(fields: [origenId], references: [id])
+  fechaCompra     DateTime @map("fecha_compra")
+  pesoBrutoKg     Decimal  @map("peso_bruto_kg") @db.Decimal(10, 3)
+  precioKg        Decimal  @map("precio_kg") @db.Decimal(10, 4)
+  montoTotal      Decimal  @map("monto_total") @db.Decimal(12, 2)
+  humedadPct      Decimal? @map("humedad_pct") @db.Decimal(5, 2)
+  condicionPago   CondicionPago @default(contado) @map("condicion_pago")
+  usuarioId       Int?     @map("usuario_id")
+  usuario         Usuario? @relation(fields: [usuarioId], references: [id])
+  creadoEn        DateTime @default(now()) @map("creado_en")
+
+  lotesCompra     LoteCompra[]
+  cuentaPorPagar  CuentaPorPagar?
+
+  @@map("compras")
+}
+
+model LoteCompra {
+  id            Int      @id @default(autoincrement())
+  compraId      Int      @map("compra_id")
+  compra        Compra   @relation(fields: [compraId], references: [id])
+  codigoLote    String   @unique @map("codigo_lote") // LC-2026-0001
+  pesoKg        Decimal  @map("peso_kg") @db.Decimal(10, 3)
+  estado        EstadoLoteCompra @default(disponible)
+  fechaIngreso  DateTime @default(now()) @map("fecha_ingreso")
+
+  insumosUsados ProduccionInsumoLote[]
+
+  @@map("lotes_compra")
+}
+
+enum EstadoLoteCompra {
+  disponible
+  en_proceso
+  agotado
+}
+
+// ============================================================
+// BLOQUE: PRODUCCION (nucleo de trazabilidad)
+// ============================================================
+
+model ProduccionProceso {
+  id                Int      @id @default(autoincrement())
+  codigoProceso     String   @unique @map("codigo_proceso") // PR-2026-0001
+  fechaInicio       DateTime @map("fecha_inicio")
+  fechaFin          DateTime? @map("fecha_fin")
+  tipoProceso       String   @map("tipo_proceso") // 'lavado', 'secado', 'lavado+secado'
+  pesoEntradaKg     Decimal? @map("peso_entrada_kg") @db.Decimal(10, 3)
+  pesoSalidaKg      Decimal? @map("peso_salida_kg") @db.Decimal(10, 3)
+  estado            EstadoProceso @default(en_proceso)
+  usuarioId         Int?     @map("usuario_id")
+  usuario           Usuario? @relation(fields: [usuarioId], references: [id])
+  observaciones     String?
+
+  insumosLote       ProduccionInsumoLote[]
+  manoDeObra        ProduccionManoObra[]
+  maquinariaUso     ProduccionMaquinariaUso[]
+  insumosAdicionales ProduccionInsumoAdicional[]
+  mermas            Merma[]
+  lotesTerminados   LoteProductoTerminado[]
+  gastos            Gasto[]
+
+  @@map("produccion_procesos")
+}
+
+enum EstadoProceso {
+  en_proceso
+  finalizado
+}
+
+// TABLA PUENTE CLAVE: permite combinar varios lotes_compra en un solo proceso
+model ProduccionInsumoLote {
+  id                Int      @id @default(autoincrement())
+  procesoId         Int      @map("proceso_id")
+  proceso           ProduccionProceso @relation(fields: [procesoId], references: [id])
+  loteCompraId      Int      @map("lote_compra_id")
+  loteCompra        LoteCompra @relation(fields: [loteCompraId], references: [id])
+  pesoUtilizadoKg   Decimal  @map("peso_utilizado_kg") @db.Decimal(10, 3)
+
+  @@map("produccion_insumos_lote")
+}
+
+model ProduccionManoObra {
+  id                Int      @id @default(autoincrement())
+  procesoId         Int      @map("proceso_id")
+  proceso           ProduccionProceso @relation(fields: [procesoId], references: [id])
+  trabajadorId      Int      @map("trabajador_id")
+  trabajador        Trabajador @relation(fields: [trabajadorId], references: [id])
+  jornadaCompleta   Boolean  @default(true) @map("jornada_completa")
+  horasExtra        Decimal  @default(0) @map("horas_extra") @db.Decimal(6, 2)
+  horasNocturnas    Decimal  @default(0) @map("horas_nocturnas") @db.Decimal(6, 2)
+  costoCalculado    Decimal  @map("costo_calculado") @db.Decimal(10, 2)
+
+  @@map("produccion_mano_obra")
+}
+
+model ProduccionMaquinariaUso {
+  id              Int      @id @default(autoincrement())
+  procesoId       Int      @map("proceso_id")
+  proceso         ProduccionProceso @relation(fields: [procesoId], references: [id])
+  maquinariaId    Int      @map("maquinaria_id")
+  maquinaria      Maquinaria @relation(fields: [maquinariaId], references: [id])
+  horasUso        Decimal  @map("horas_uso") @db.Decimal(6, 2)
+  costoCalculado  Decimal  @map("costo_calculado") @db.Decimal(10, 2)
+
+  @@map("produccion_maquinaria_uso")
+}
+
+model ProduccionInsumoAdicional {
+  id           Int      @id @default(autoincrement())
+  procesoId    Int      @map("proceso_id")
+  proceso      ProduccionProceso @relation(fields: [procesoId], references: [id])
+  descripcion  String   // agua, quimicos, empaque
+  costo        Decimal  @db.Decimal(10, 2)
+
+  @@map("produccion_insumos_adicionales")
+}
+
+model Merma {
+  id             Int      @id @default(autoincrement())
+  procesoId      Int      @map("proceso_id")
+  proceso        ProduccionProceso @relation(fields: [procesoId], references: [id])
+  pesoKg         Decimal  @map("peso_kg") @db.Decimal(10, 3)
+  motivo         MotivoMerma
+  observaciones  String?
+
+  @@map("mermas")
+}
+
+enum MotivoMerma {
+  humedad
+  plagas
+  error_manejo
+  otro
+}
+
+model LoteProductoTerminado {
+  id                Int      @id @default(autoincrement())
+  procesoId         Int      @map("proceso_id")
+  proceso           ProduccionProceso @relation(fields: [procesoId], references: [id])
+  presentacionId    Int      @map("presentacion_id")
+  presentacion      Presentacion @relation(fields: [presentacionId], references: [id])
+  codigoLote        String   @unique @map("codigo_lote") // LT-2026-0001
+  pesoKg            Decimal  @map("peso_kg") @db.Decimal(10, 3)
+  costoTotalLote    Decimal? @map("costo_total_lote") @db.Decimal(12, 2)
+  costoKg           Decimal? @map("costo_kg") @db.Decimal(10, 4)
+  fechaProduccion   DateTime @default(now()) @map("fecha_produccion")
+  estado            EstadoLoteProducto @default(disponible)
+
+  movimientosInventario InventarioMovimiento[]
+  ventaDetalle          VentaDetalle[]
+
+  @@map("lotes_producto_terminado")
+}
+
+enum EstadoLoteProducto {
+  disponible
+  agotado
+}
+
+// ============================================================
+// BLOQUE: INVENTARIO (kardex - historial de movimientos)
+// ============================================================
+
+model InventarioMovimiento {
+  id                Int      @id @default(autoincrement())
+  loteProductoId    Int      @map("lote_producto_id")
+  loteProducto      LoteProductoTerminado @relation(fields: [loteProductoId], references: [id])
+  tipoMovimiento    TipoMovimientoInventario @map("tipo_movimiento")
+  cantidadKg        Decimal  @map("cantidad_kg") @db.Decimal(10, 3)
+  motivo            String   // 'produccion', 'venta', 'ajuste_merma_almacen'
+  fecha             DateTime @default(now())
+  referenciaId      Int?     @map("referencia_id") // id de venta u otro origen
+
+  @@map("inventario_movimientos")
+}
+
+enum TipoMovimientoInventario {
+  ingreso
+  salida
+  ajuste
+}
+
+// ============================================================
+// BLOQUE: VENTAS Y COBRANZA
+// ============================================================
+
+model Venta {
+  id              Int      @id @default(autoincrement())
+  clienteId       Int      @map("cliente_id")
+  cliente         Cliente  @relation(fields: [clienteId], references: [id])
+  fechaVenta      DateTime @default(now()) @map("fecha_venta")
+  condicionPago   CondicionPago @default(contado) @map("condicion_pago")
+  montoTotal      Decimal? @map("monto_total") @db.Decimal(12, 2)
+  estado          EstadoVenta @default(pendiente)
+  usuarioId       Int?     @map("usuario_id")
+  usuario         Usuario? @relation(fields: [usuarioId], references: [id])
+
+  detalle             VentaDetalle[]
+  cuentaPorCobrar      CuentaPorCobrar?
+
+  @@map("ventas")
+}
+
+enum EstadoVenta {
+  pendiente
+  pagada_parcial
+  pagada
+  anulada
+}
+
+// TABLA PUENTE CLAVE: permite una venta con varios lotes/presentaciones
+model VentaDetalle {
+  id                Int      @id @default(autoincrement())
+  ventaId           Int      @map("venta_id")
+  venta             Venta    @relation(fields: [ventaId], references: [id])
+  loteProductoId    Int      @map("lote_producto_id")
+  loteProducto      LoteProductoTerminado @relation(fields: [loteProductoId], references: [id])
+  cantidadKg        Decimal  @map("cantidad_kg") @db.Decimal(10, 3)
+  precioKg          Decimal  @map("precio_kg") @db.Decimal(10, 4)
+  subtotal          Decimal  @db.Decimal(12, 2)
+  costoKgMomento    Decimal  @map("costo_kg_momento") @db.Decimal(10, 4) // copiado al vender, no recalculable despues
+
+  @@map("venta_detalle")
+}
+
+model CuentaPorCobrar {
+  id                Int      @id @default(autoincrement())
+  ventaId           Int      @unique @map("venta_id")
+  venta             Venta    @relation(fields: [ventaId], references: [id])
+  montoOriginal     Decimal  @map("monto_original") @db.Decimal(12, 2)
+  saldoPendiente    Decimal  @map("saldo_pendiente") @db.Decimal(12, 2)
+  fechaVencimiento  DateTime? @map("fecha_vencimiento")
+  estado            EstadoCuenta @default(vigente)
+
+  pagosCobros       PagoCobro[]
+
+  @@map("cuentas_por_cobrar")
+}
+
+enum EstadoCuenta {
+  vigente
+  vencida
+  pagada
+}
+
+// ============================================================
+// BLOQUE: COMPRAS A CREDITO Y PAGOS
+// ============================================================
+
+model CuentaPorPagar {
+  id                Int      @id @default(autoincrement())
+  compraId          Int      @unique @map("compra_id")
+  compra            Compra   @relation(fields: [compraId], references: [id])
+  proveedorId       Int      @map("proveedor_id")
+  proveedor         Proveedor @relation(fields: [proveedorId], references: [id])
+  montoOriginal     Decimal  @map("monto_original") @db.Decimal(12, 2)
+  saldoPendiente    Decimal  @map("saldo_pendiente") @db.Decimal(12, 2)
+  fechaVencimiento  DateTime? @map("fecha_vencimiento")
+  estado            EstadoCuenta @default(vigente)
+
+  pagosCobros       PagoCobro[]
+
+  @@map("cuentas_por_pagar")
+}
+
+// Unifica cobros de clientes y pagos a proveedores
+model PagoCobro {
+  id                    Int      @id @default(autoincrement())
+  tipo                  TipoPagoCobro
+  cuentaPorCobrarId     Int?     @map("cuenta_por_cobrar_id")
+  cuentaPorCobrar       CuentaPorCobrar? @relation(fields: [cuentaPorCobrarId], references: [id])
+  cuentaPorPagarId      Int?     @map("cuenta_por_pagar_id")
+  cuentaPorPagar        CuentaPorPagar? @relation(fields: [cuentaPorPagarId], references: [id])
+  cuentaTesoreriaId     Int      @map("cuenta_tesoreria_id")
+  cuentaTesoreria       CuentaTesoreria @relation(fields: [cuentaTesoreriaId], references: [id])
+  monto                 Decimal  @db.Decimal(12, 2)
+  fecha                  DateTime @default(now())
+  medioPago              String?  @map("medio_pago") // efectivo, yape, transferencia
+  usuarioId              Int?     @map("usuario_id")
+  usuario                Usuario? @relation(fields: [usuarioId], references: [id])
+
+  @@map("pagos_cobros")
+}
+
+enum TipoPagoCobro {
+  cobro_cliente
+  pago_proveedor
+}
+
+// ============================================================
+// BLOQUE: GASTOS Y CAJA
+// ============================================================
+
+model Gasto {
+  id                  Int      @id @default(autoincrement())
+  categoria           String   // 'transporte','servicios','mantenimiento','otros'
+  descripcion         String?
+  monto               Decimal  @db.Decimal(12, 2)
+  fecha               DateTime @default(now())
+  cuentaTesoreriaId   Int      @map("cuenta_tesoreria_id")
+  cuentaTesoreria     CuentaTesoreria @relation(fields: [cuentaTesoreriaId], references: [id])
+  procesoId           Int?     @map("proceso_id") // si es atribuible a un lote especifico
+  proceso             ProduccionProceso? @relation(fields: [procesoId], references: [id])
+  usuarioId           Int?     @map("usuario_id")
+  usuario             Usuario? @relation(fields: [usuarioId], references: [id])
+
+  @@map("gastos")
+}
+
+model CajaMovimiento {
+  id                  Int      @id @default(autoincrement())
+  cuentaTesoreriaId   Int      @map("cuenta_tesoreria_id")
+  cuentaTesoreria     CuentaTesoreria @relation(fields: [cuentaTesoreriaId], references: [id])
+  tipo                TipoMovimientoCaja
+  monto               Decimal  @db.Decimal(12, 2)
+  origen              String   // 'cobro','pago_proveedor','gasto','ajuste'
+  origenId            Int?     @map("origen_id")
+  fecha               DateTime @default(now())
+
+  @@map("caja_movimientos")
+}
+
+enum TipoMovimientoCaja {
+  ingreso
+  egreso
+}
